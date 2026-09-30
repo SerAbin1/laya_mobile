@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -107,6 +109,35 @@ class _MyHomePageState extends State<MyHomePage> {
       setState(() => _inferenceResponse = 'Error: ${e.message}');
     } finally {
       setState(() => _inferenceLoading = false);
+    }
+  }
+
+  String _askResponse = 'No answer yet';
+  bool _askLoading = false;
+
+  Future<void> _ask() async {
+    setState(() {
+      _askLoading = true;
+      _askResponse = 'Asking...';
+    });
+    try {
+      final json = await _channel.invokeMethod<String>('ask', {
+        'question': 'What is the status?',
+        'options': ['Online', 'Offline'],
+        'state': 'The server is down.',
+      });
+      final answer = jsonDecode(json!) as Map<String, dynamic>;
+      final confidence = (answer['confidence'] as num).toStringAsFixed(3);
+      setState(
+        () => _askResponse =
+            'answer=${answer['answer']} confidence=$confidence\n'
+            'probabilities=${answer['probabilities']}\n'
+            'T=${answer['temperature']} raw=${answer['raw_logits']}',
+      );
+    } on PlatformException catch (e) {
+      setState(() => _askResponse = 'Error: ${e.message}');
+    } finally {
+      setState(() => _askLoading = false);
     }
   }
 
@@ -241,6 +272,29 @@ class _MyHomePageState extends State<MyHomePage> {
                       )
                     : const Icon(Icons.memory),
                 label: const Text('Run Inference'),
+              ),
+              const SizedBox(height: 40),
+              const Text('"The server is down." → What is the status?'),
+              const SizedBox(height: 8),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 24),
+                child: Text(
+                  _askResponse,
+                  textAlign: TextAlign.center,
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
+              ),
+              const SizedBox(height: 16),
+              FilledButton.icon(
+                onPressed: _askLoading ? null : _ask,
+                icon: _askLoading
+                    ? const SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(Icons.question_answer_outlined),
+                label: const Text('Ask'),
               ),
             ],
           ),

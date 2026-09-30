@@ -2,6 +2,7 @@ package com.example.laya_mobile
 
 import android.util.Log
 import com.example.laya_mobile.laya.LayaCalibration
+import com.example.laya_mobile.laya.LayaDecoder
 import com.example.laya_mobile.laya.LayaModel
 import com.example.laya_mobile.laya.LayaPromptBuilder
 import com.example.laya_mobile.laya.LayaTokenizer
@@ -20,6 +21,7 @@ class MainActivity : FlutterActivity() {
     @Volatile private var tokenizer: LayaTokenizer? = null
     @Volatile private var promptBuilder: LayaPromptBuilder? = null
     @Volatile private var model: LayaModel? = null
+    @Volatile private var decoder: LayaDecoder? = null
     @Volatile private var calibration: LayaCalibration? = null
     @Volatile private var calibrationMap: Map<String, Any?>? = null
 
@@ -126,6 +128,34 @@ class MainActivity : FlutterActivity() {
                             }
                         }
                     }
+                    "ask" -> {
+                        val question = call.argument<String>("question")
+                        val options = call.argument<List<String>>("options")
+                        val state = call.argument<String>("state")
+                        if (question == null || options == null || state == null) {
+                            result.error("bad_args", "ask expects {question, options, state}", null)
+                            return@setMethodCallHandler
+                        }
+                        executor.execute {
+                            try {
+                                val inputs = checkNotNull(promptBuilder) { "Builder not initialized" }
+                                    .buildChoiceInputs(question, options, state)
+                                val start = System.nanoTime()
+                                val outputs = checkNotNull(model) { "Model not initialized" }
+                                    .run(inputs)
+                                val elapsedMs = (System.nanoTime() - start) / 1e6
+                                val answer = checkNotNull(decoder) { "Calibration not loaded" }
+                                    .decode(inputs, outputs)
+                                val json = answer.toJson()
+                                Log.d(TAG, "ask ${"%.1f".format(elapsedMs)} ms " +
+                                    "markers=${inputs.markers.toList()} answer=$json")
+                                runOnUiThread { result.success(json) }
+                            } catch (e: Exception) {
+                                Log.e(TAG, "ask failed", e)
+                                runOnUiThread { result.error("ask_error", e.message, null) }
+                            }
+                        }
+                    }
                     else -> result.notImplemented()
                 }
             }
@@ -152,7 +182,7 @@ class MainActivity : FlutterActivity() {
             val calibrationFile = ensureAssetInstalled("calibration.json")
             val map = LayaCalibration.loadMap(calibrationFile)
             calibrationMap = map
-            calibration = LayaCalibration.fromMap(map)
+            calibration = LayaCalibration.fromMap(map).also { decoder = LayaDecoder(it) }
             Log.d(TAG, "Calibration map keys=${map.keys} " +
                 "temperatures=${(map["temperature"] as? List<*>)?.size} " +
                 "buckets=${((map["temperature_by_options"] as? Map<*, *>)?.size)}")

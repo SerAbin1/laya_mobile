@@ -11,6 +11,8 @@ class LayaInputs(
   val qtypeOnehot: FloatArray,
   /** Index of every [MASK] in inputIds, in option order. */
   val markers: IntArray,
+  /** Source question; the decoder needs its type and option labels. */
+  val question: LayaQuestion,
 ) {
   companion object {
     const val QTYPE_COUNT = 3
@@ -28,7 +30,7 @@ class LayaInputs(
           "marker $marker points at ${inputIds[marker]}, not MASK"
         }
       }
-      return LayaInputs(inputIds, attentionMask, qtypeOnehot, markers)
+      return LayaInputs(inputIds, attentionMask, qtypeOnehot, markers, sequence.question)
     }
   }
 }
