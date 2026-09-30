@@ -57,19 +57,56 @@ class _MyHomePageState extends State<MyHomePage> {
         },
       );
       final ids = (result?['input_ids'] as List?)?.cast<int>() ?? const <int>[];
-      final markers = (result?['markers'] as List?)?.cast<int>() ?? const <int>[];
-      final mask = (result?['attention_mask'] as List?)?.cast<double>() ?? const [];
+      final markers =
+          (result?['markers'] as List?)?.cast<int>() ?? const <int>[];
+      final mask =
+          (result?['attention_mask'] as List?)?.cast<double>() ?? const [];
       final realLength = mask.where((m) => m == 1.0).length;
       final atMarkers = markers.map((m) => ids[m]).toList();
-      setState(() => _sequenceResponse =
-          'len=${ids.length} real=$realLength\n'
-          'markers=$markers ids@markers=$atMarkers\n'
-          'qtype=${result?['qtype_onehot']}\n'
-          'ids[0..$realLength]=${ids.take(realLength).toList()}');
+      setState(
+        () => _sequenceResponse =
+            'len=${ids.length} real=$realLength\n'
+            'markers=$markers ids@markers=$atMarkers\n'
+            'qtype=${result?['qtype_onehot']}\n'
+            'ids[0..$realLength]=${ids.take(realLength).toList()}',
+      );
     } on PlatformException catch (e) {
       setState(() => _sequenceResponse = 'Error: ${e.message}');
     } finally {
       setState(() => _sequenceLoading = false);
+    }
+  }
+
+  String _inferenceResponse = 'No inference yet';
+  bool _inferenceLoading = false;
+
+  Future<void> _runInference() async {
+    setState(() {
+      _inferenceLoading = true;
+      _inferenceResponse = 'Running...';
+    });
+    try {
+      final result = await _channel.invokeMapMethod<String, Object?>(
+        'runInference',
+        {
+          'question': 'Is the user asking for help?',
+          'options': ['yes', 'no'],
+          'state': 'user: can you help me reset my password?',
+        },
+      );
+      final logits = (result?['token_logits'] as List?) ?? const [];
+      final elapsed = (result?['elapsed_ms'] as num?)?.toStringAsFixed(1);
+      setState(
+        () => _inferenceResponse =
+            '$elapsed ms, token_logits=${logits.length}, '
+            'pooled_cls=${result?['pooled_cls_size']}\n'
+            'markers=${result?['markers']} '
+            'logits@markers=${result?['marker_logits']}',
+      );
+    } on PlatformException catch (e) {
+      setState(() => _inferenceResponse = 'Error: ${e.message}');
+    } finally {
+      setState(() => _inferenceLoading = false);
     }
   }
 
@@ -94,8 +131,10 @@ class _MyHomePageState extends State<MyHomePage> {
       _tokenResponse = 'Tokenizing $_sample ...';
     });
     try {
-      final result =
-          await _channel.invokeMethod<List<Object?>>('tokenize', _sample);
+      final result = await _channel.invokeMethod<List<Object?>>(
+        'tokenize',
+        _sample,
+      );
       final ids = result?.cast<int>() ?? const <int>[];
       final preview =
           '${ids.take(20).join(', ')}${ids.length > 20 ? ' ...' : ''}';
@@ -115,72 +154,96 @@ class _MyHomePageState extends State<MyHomePage> {
         title: Text(widget.title),
       ),
       body: Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            const Text('MethodChannel response:'),
-            const SizedBox(height: 8),
-            Text(
-              _response,
-              style: Theme.of(context).textTheme.headlineMedium,
-            ),
-            const SizedBox(height: 24),
-            FilledButton.icon(
-              onPressed: _loading ? null : _sendPing,
-              icon: _loading
-                  ? const SizedBox(
-                      width: 16,
-                      height: 16,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
-                  : const Icon(Icons.bolt),
-              label: const Text('Send Ping'),
-            ),
-            const SizedBox(height: 40),
-            const Text('Tokenize "$_sample":'),
-            const SizedBox(height: 8),
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 24),
-              child: Text(
-                _tokenResponse,
-                textAlign: TextAlign.center,
-                style: Theme.of(context).textTheme.bodyLarge,
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.symmetric(vertical: 24),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              const Text('MethodChannel response:'),
+              const SizedBox(height: 8),
+              Text(
+                _response,
+                style: Theme.of(context).textTheme.headlineMedium,
               ),
-            ),
-            const SizedBox(height: 16),
-            FilledButton.icon(
-              onPressed: _tokenLoading ? null : _tokenize,
-              icon: _tokenLoading
-                  ? const SizedBox(
-                      width: 16,
-                      height: 16,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
-                  : const Icon(Icons.text_snippet_outlined),
-              label: const Text('Tokenize'),
-            ),
-            const SizedBox(height: 40),
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 24),
-              child: Text(
-                _sequenceResponse,
-                textAlign: TextAlign.center,
-                style: Theme.of(context).textTheme.bodySmall,
+              const SizedBox(height: 24),
+              FilledButton.icon(
+                onPressed: _loading ? null : _sendPing,
+                icon: _loading
+                    ? const SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(Icons.bolt),
+                label: const Text('Send Ping'),
               ),
-            ),
-            const SizedBox(height: 16),
-            FilledButton.icon(
-              onPressed: _sequenceLoading ? null : _buildSequence,
-              icon: _sequenceLoading
-                  ? const SizedBox(
-                      width: 16,
-                      height: 16,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
-                  : const Icon(Icons.view_array_outlined),
-              label: const Text('Build Sequence'),
-            ),
-          ],
+              const SizedBox(height: 40),
+              const Text('Tokenize "$_sample":'),
+              const SizedBox(height: 8),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 24),
+                child: Text(
+                  _tokenResponse,
+                  textAlign: TextAlign.center,
+                  style: Theme.of(context).textTheme.bodyLarge,
+                ),
+              ),
+              const SizedBox(height: 16),
+              FilledButton.icon(
+                onPressed: _tokenLoading ? null : _tokenize,
+                icon: _tokenLoading
+                    ? const SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(Icons.text_snippet_outlined),
+                label: const Text('Tokenize'),
+              ),
+              const SizedBox(height: 40),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 24),
+                child: Text(
+                  _sequenceResponse,
+                  textAlign: TextAlign.center,
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
+              ),
+              const SizedBox(height: 16),
+              FilledButton.icon(
+                onPressed: _sequenceLoading ? null : _buildSequence,
+                icon: _sequenceLoading
+                    ? const SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(Icons.view_array_outlined),
+                label: const Text('Build Sequence'),
+              ),
+              const SizedBox(height: 40),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 24),
+                child: Text(
+                  _inferenceResponse,
+                  textAlign: TextAlign.center,
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
+              ),
+              const SizedBox(height: 16),
+              FilledButton.icon(
+                onPressed: _inferenceLoading ? null : _runInference,
+                icon: _inferenceLoading
+                    ? const SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(Icons.memory),
+                label: const Text('Run Inference'),
+              ),
+            ],
+          ),
         ),
       ),
     );

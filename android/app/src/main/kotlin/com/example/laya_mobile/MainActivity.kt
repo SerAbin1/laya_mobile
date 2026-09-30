@@ -2,6 +2,7 @@ package com.example.laya_mobile
 
 import android.util.Log
 import com.example.laya_mobile.laya.LayaCalibration
+import com.example.laya_mobile.laya.LayaModel
 import com.example.laya_mobile.laya.LayaPromptBuilder
 import com.example.laya_mobile.laya.LayaTokenizer
 import com.example.laya_mobile.laya.buildChoiceInputs
@@ -18,6 +19,7 @@ class MainActivity : FlutterActivity() {
 
     @Volatile private var tokenizer: LayaTokenizer? = null
     @Volatile private var promptBuilder: LayaPromptBuilder? = null
+    @Volatile private var model: LayaModel? = null
     @Volatile private var calibration: LayaCalibration? = null
     @Volatile private var calibrationMap: Map<String, Any?>? = null
 
@@ -86,9 +88,53 @@ class MainActivity : FlutterActivity() {
                             }
                         }
                     }
+                    "runInference" -> {
+                        val question = call.argument<String>("question")
+                        val options = call.argument<List<String>>("options")
+                        val state = call.argument<String>("state")
+                        if (question == null || options == null || state == null) {
+                            result.error("bad_args",
+                                "runInference expects {question, options, state}", null)
+                            return@setMethodCallHandler
+                        }
+                        executor.execute {
+                            try {
+                                val inputs = checkNotNull(promptBuilder) { "Builder not initialized" }
+                                    .buildChoiceInputs(question, options, state)
+                                val start = System.nanoTime()
+                                val outputs = checkNotNull(model) { "Model not initialized" }
+                                    .run(inputs)
+                                val elapsedMs = (System.nanoTime() - start) / 1e6
+                                val markerLogits = inputs.markers.map { outputs.tokenLogits[it] }
+                                Log.d(TAG, "forward pass ${"%.1f".format(elapsedMs)} ms " +
+                                    "token_logits.size=${outputs.tokenLogits.size} " +
+                                    "pooled_cls.size=${outputs.pooledCls.size}")
+                                Log.d(TAG, "token_logits=${outputs.tokenLogits.toList()}")
+                                Log.d(TAG, "markers=${inputs.markers.toList()} " +
+                                    "logits@markers=$markerLogits options=$options")
+                                val payload = mapOf(
+                                    "elapsed_ms" to elapsedMs,
+                                    "token_logits" to outputs.tokenLogits.map { it.toDouble() },
+                                    "pooled_cls_size" to outputs.pooledCls.size,
+                                    "markers" to inputs.markers.toList(),
+                                    "marker_logits" to markerLogits.map { it.toDouble() },
+                                )
+                                runOnUiThread { result.success(payload) }
+                            } catch (e: Exception) {
+                                Log.e(TAG, "runInference failed", e)
+                                runOnUiThread { result.error("inference_error", e.message, null) }
+                            }
+                        }
+                    }
                     else -> result.notImplemented()
                 }
             }
+    }
+
+    override fun onDestroy() {
+        executor.execute { model?.close(); model = null }
+        executor.shutdown()
+        super.onDestroy()
     }
 
     private fun initializeEngine() {
@@ -98,6 +144,10 @@ class MainActivity : FlutterActivity() {
             tokenizer = loaded
             promptBuilder = LayaPromptBuilder(loaded)
             Log.d(TAG, "Tokenizer ready in ${System.currentTimeMillis() - start} ms")
+
+            val modelStart = System.currentTimeMillis()
+            model = LayaModel(assets, "flutter_assets/assets/$MODEL_ASSET", numThreads = 4)
+            Log.d(TAG, "Model ready in ${System.currentTimeMillis() - modelStart} ms")
 
             val calibrationFile = ensureAssetInstalled("calibration.json")
             val map = LayaCalibration.loadMap(calibrationFile)
@@ -141,5 +191,6 @@ class MainActivity : FlutterActivity() {
 
     companion object {
         private const val TAG = "LayaEngine"
+        private const val MODEL_ASSET = "laya_ml_s256_wfp16.tflite"
     }
 }
