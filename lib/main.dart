@@ -35,6 +35,10 @@ class _MyHomePageState extends State<MyHomePage> {
   String _response = 'No response yet';
   bool _loading = false;
 
+  static const _sample = 'question: hello';
+  String _tokenResponse = 'No tokenization yet';
+  bool _tokenLoading = false;
+
   Future<void> _sendPing() async {
     setState(() {
       _loading = true;
@@ -47,6 +51,25 @@ class _MyHomePageState extends State<MyHomePage> {
       setState(() => _response = 'Error: ${e.message}');
     } finally {
       setState(() => _loading = false);
+    }
+  }
+
+  Future<void> _tokenize() async {
+    setState(() {
+      _tokenLoading = true;
+      _tokenResponse = 'Tokenizing $_sample ...';
+    });
+    try {
+      final result =
+          await _channel.invokeMethod<List<Object?>>('tokenize', _sample);
+      final ids = result?.cast<int>() ?? const <int>[];
+      final preview =
+          '${ids.take(20).join(', ')}${ids.length > 20 ? ' ...' : ''}';
+      setState(() => _tokenResponse = '${ids.length} ids: [$preview]');
+    } on PlatformException catch (e) {
+      setState(() => _tokenResponse = 'Error: ${e.message}');
+    } finally {
+      setState(() => _tokenLoading = false);
     }
   }
 
@@ -78,6 +101,29 @@ class _MyHomePageState extends State<MyHomePage> {
                     )
                   : const Icon(Icons.bolt),
               label: const Text('Send Ping'),
+            ),
+            const SizedBox(height: 40),
+            const Text('Tokenize "$_sample":'),
+            const SizedBox(height: 8),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 24),
+              child: Text(
+                _tokenResponse,
+                textAlign: TextAlign.center,
+                style: Theme.of(context).textTheme.bodyLarge,
+              ),
+            ),
+            const SizedBox(height: 16),
+            FilledButton.icon(
+              onPressed: _tokenLoading ? null : _tokenize,
+              icon: _tokenLoading
+                  ? const SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.text_snippet_outlined),
+              label: const Text('Tokenize'),
             ),
           ],
         ),
