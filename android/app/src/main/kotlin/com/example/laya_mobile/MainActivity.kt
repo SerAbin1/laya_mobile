@@ -2,7 +2,9 @@ package com.example.laya_mobile
 
 import android.util.Log
 import com.example.laya_mobile.laya.LayaCalibration
+import com.example.laya_mobile.laya.LayaPromptBuilder
 import com.example.laya_mobile.laya.LayaTokenizer
+import com.example.laya_mobile.laya.buildChoiceInputs
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
@@ -15,6 +17,7 @@ class MainActivity : FlutterActivity() {
     private val executor = Executors.newSingleThreadExecutor()
 
     @Volatile private var tokenizer: LayaTokenizer? = null
+    @Volatile private var promptBuilder: LayaPromptBuilder? = null
     @Volatile private var calibration: LayaCalibration? = null
     @Volatile private var calibrationMap: Map<String, Any?>? = null
 
@@ -50,6 +53,39 @@ class MainActivity : FlutterActivity() {
                             }
                         }
                     }
+                    "buildSequence" -> {
+                        val question = call.argument<String>("question")
+                        val options = call.argument<List<String>>("options")
+                        val state = call.argument<String>("state")
+                        if (question == null || options == null || state == null) {
+                            result.error("bad_args",
+                                "buildSequence expects {question, options, state}", null)
+                            return@setMethodCallHandler
+                        }
+                        executor.execute {
+                            try {
+                                val inputs = checkNotNull(promptBuilder) { "Builder not initialized" }
+                                    .buildChoiceInputs(question, options, state)
+                                val realLength = inputs.attentionMask.count { it == 1f }
+                                Log.d(TAG, "input_ids=${inputs.inputIds.toList()}")
+                                Log.d(TAG, "attention_mask=${inputs.attentionMask.toList()}")
+                                Log.d(TAG, "qtype_onehot=${inputs.qtypeOnehot.toList()}")
+                                Log.d(TAG, "markers=${inputs.markers.toList()} " +
+                                    "ids@markers=${inputs.markers.map { inputs.inputIds[it] }} " +
+                                    "(MASK=${LayaPromptBuilder.MASK}) realLength=$realLength")
+                                val payload = mapOf(
+                                    "input_ids" to inputs.inputIds.toList(),
+                                    "attention_mask" to inputs.attentionMask.map { it.toDouble() },
+                                    "qtype_onehot" to inputs.qtypeOnehot.map { it.toDouble() },
+                                    "markers" to inputs.markers.toList(),
+                                )
+                                runOnUiThread { result.success(payload) }
+                            } catch (e: Exception) {
+                                Log.e(TAG, "buildSequence failed", e)
+                                runOnUiThread { result.error("build_error", e.message, null) }
+                            }
+                        }
+                    }
                     else -> result.notImplemented()
                 }
             }
@@ -58,7 +94,9 @@ class MainActivity : FlutterActivity() {
     private fun initializeEngine() {
         try {
             val start = System.currentTimeMillis()
-            tokenizer = LayaTokenizer(ensureAssetInstalled("tokenizer.json"))
+            val loaded = LayaTokenizer(ensureAssetInstalled("tokenizer.json"))
+            tokenizer = loaded
+            promptBuilder = LayaPromptBuilder(loaded)
             Log.d(TAG, "Tokenizer ready in ${System.currentTimeMillis() - start} ms")
 
             val calibrationFile = ensureAssetInstalled("calibration.json")

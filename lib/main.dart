@@ -39,6 +39,40 @@ class _MyHomePageState extends State<MyHomePage> {
   String _tokenResponse = 'No tokenization yet';
   bool _tokenLoading = false;
 
+  String _sequenceResponse = 'No sequence yet';
+  bool _sequenceLoading = false;
+
+  Future<void> _buildSequence() async {
+    setState(() {
+      _sequenceLoading = true;
+      _sequenceResponse = 'Building...';
+    });
+    try {
+      final result = await _channel.invokeMapMethod<String, Object?>(
+        'buildSequence',
+        {
+          'question': 'Is the user asking for help?',
+          'options': ['yes', 'no'],
+          'state': 'user: can you help me reset my password?',
+        },
+      );
+      final ids = (result?['input_ids'] as List?)?.cast<int>() ?? const <int>[];
+      final markers = (result?['markers'] as List?)?.cast<int>() ?? const <int>[];
+      final mask = (result?['attention_mask'] as List?)?.cast<double>() ?? const [];
+      final realLength = mask.where((m) => m == 1.0).length;
+      final atMarkers = markers.map((m) => ids[m]).toList();
+      setState(() => _sequenceResponse =
+          'len=${ids.length} real=$realLength\n'
+          'markers=$markers ids@markers=$atMarkers\n'
+          'qtype=${result?['qtype_onehot']}\n'
+          'ids[0..$realLength]=${ids.take(realLength).toList()}');
+    } on PlatformException catch (e) {
+      setState(() => _sequenceResponse = 'Error: ${e.message}');
+    } finally {
+      setState(() => _sequenceLoading = false);
+    }
+  }
+
   Future<void> _sendPing() async {
     setState(() {
       _loading = true;
@@ -124,6 +158,27 @@ class _MyHomePageState extends State<MyHomePage> {
                     )
                   : const Icon(Icons.text_snippet_outlined),
               label: const Text('Tokenize'),
+            ),
+            const SizedBox(height: 40),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 24),
+              child: Text(
+                _sequenceResponse,
+                textAlign: TextAlign.center,
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
+            ),
+            const SizedBox(height: 16),
+            FilledButton.icon(
+              onPressed: _sequenceLoading ? null : _buildSequence,
+              icon: _sequenceLoading
+                  ? const SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.view_array_outlined),
+              label: const Text('Build Sequence'),
             ),
           ],
         ),
