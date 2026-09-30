@@ -1,0 +1,87 @@
+import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+
+void main() {
+  runApp(const MyApp());
+}
+
+class MyApp extends StatelessWidget {
+  const MyApp({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return MaterialApp(
+      title: 'Laya Mobile',
+      theme: ThemeData(
+        colorScheme: ColorScheme.fromSeed(seedColor: Colors.deepPurple),
+      ),
+      home: const MyHomePage(title: 'Laya Mobile'),
+    );
+  }
+}
+
+class MyHomePage extends StatefulWidget {
+  const MyHomePage({super.key, required this.title});
+
+  final String title;
+
+  @override
+  State<MyHomePage> createState() => _MyHomePageState();
+}
+
+class _MyHomePageState extends State<MyHomePage> {
+  static const _channel = MethodChannel('com.example/laya_engine');
+
+  String _response = 'No response yet';
+  bool _loading = false;
+
+  Future<void> _sendPing() async {
+    setState(() {
+      _loading = true;
+      _response = 'Waiting...';
+    });
+    try {
+      final result = await _channel.invokeMethod<String>('ping', 'ping');
+      setState(() => _response = result ?? 'null');
+    } on PlatformException catch (e) {
+      setState(() => _response = 'Error: ${e.message}');
+    } finally {
+      setState(() => _loading = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        backgroundColor: Theme.of(context).colorScheme.inversePrimary,
+        title: Text(widget.title),
+      ),
+      body: Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            const Text('MethodChannel response:'),
+            const SizedBox(height: 8),
+            Text(
+              _response,
+              style: Theme.of(context).textTheme.headlineMedium,
+            ),
+            const SizedBox(height: 24),
+            FilledButton.icon(
+              onPressed: _loading ? null : _sendPing,
+              icon: _loading
+                  ? const SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.bolt),
+              label: const Text('Send Ping'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
